@@ -1,56 +1,214 @@
-# Netease Cloud Music CS Agent: Minimal RAG Customer Support (Spring Boot + DashScope)
+# Netease Cloud Music Intelligent Customer Support Agent (Minimal RAG)
 
-A minimal, reproducible **RAG-style customer support Agent** for NetEase Cloud Music.
+![Java](https://img.shields.io/badge/Java-17-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-blue)
+![Database](https://img.shields.io/badge/Database-H2%20%2F%20MySQL-lightgrey)
+![Cache](https://img.shields.io/badge/Cache-Redis-lightgrey)
+![Docker](https://img.shields.io/badge/Docker-Compose-blue)
+![License](https://img.shields.io/badge/License-MIT-grey)
 
-**What it does**
-- **Retrieve** top-5 relevant KnowledgeBase entries (H2 + Spring Data JPA)
-- **Grounded answering** with a strict system policy: *answer only based on retrieved “Known Info”, otherwise refuse*
-- **LLM backend**: Alibaba Bailian **DashScope (OpenAI-compatible endpoint)** via OkHttp + Spring Boot Jackson `ObjectMapper`
-- **API**: `GET /api/agent/chat?question=...` → `{"answer":"...","hits":N}`
+A lightweight **Retrieval-Augmented Generation (RAG)** backend for high-volume customer support scenarios.
 
-**Highlights (the “vibe coding” bits)**
-- Minimal closed loop: **Controller → Retrieval → Prompt → LLM → JSON response**
-- Strict anti-hallucination: if `hits == 0`, **no LLM call**, direct refusal
-- Retrieval robustness: **normalize + retry** (removes filler words/punctuations)
-- No extra JSON libs: **reuses Spring Boot Jackson** (`ObjectMapper`), no Gson/Fastjson
-- Config via env var: `DASHSCOPE_API_KEY`
+This service enforces a **grounded-only** answering policy:
+- If retrieval returns **no hit** (`hits == 0`), it returns a fixed refusal message **without invoking the LLM** (fail-fast).
+- If `hits > 0`, it injects retrieved KnowledgeBase entries as **Known Info** and constrains the LLM to answer **only** from that context.
 
 ---
 
-## Environment Setup
+## Project Background
 
-### Requirements
-- JDK 17+
-- Maven 3.8+
-- DashScope API Key (Alibaba Bailian)
+Customer support queries in music streaming apps (e.g., membership renewal, pricing) are repetitive and high-volume.  
+This project demonstrates a minimal RAG pipeline with production-minded engineering choices:
 
-### 1) Set API Key (choose one)
+- **Predictable control flow:** synchronous end-to-end pipeline for stability
+- **Hallucination containment:** refusal gate when retrieval has no hit
+- **Performance optimization:** Redis caching for hot queries (with TTL and graceful degradation)
+- **Environment separation:** H2 (dev) vs MySQL + Redis (prod simulation) via Spring Profiles
+- **Vendor-agnostic LLM integration:** OpenAI-compatible protocol (DashScope/Qwen by default)
+
+---
+
+## Key Features
+
+### 1) Strict Grounding Policy (Fail-Fast)
+- **Hit = 0:** return fixed refusal immediately (**no LLM call**)
+- **Hit > 0:** inject “Known Info” and answer **only** based on retrieved context
+
+### 2) Dual-Profile Support (Dev vs Prod Simulation)
+- **dev (default):** H2 in-memory, zero infrastructure required
+- **prod:** MySQL persistence + Redis caching (Docker Compose), closer to real-world deployment
+
+### 3) Redis Caching (Hot Query Optimization)
+- Cache-first: check Redis before retrieval/LLM
+- TTL-based write-back on cache miss
+- **Stability:** Redis failures degrade gracefully (cache layer does not break the main request path)
+- **Correctness note:** refusal responses (`hits==0`) should not be cached for long to avoid stale refusal after KB updates
+
+### 4) Minimal Retrieval Baseline (Top-K)
+- Top-K lexical retrieval (K=5) over KnowledgeBase (Spring Data JPA)
+- Optional query normalization + retry to improve recall on noisy inputs
+
+---
+
+## Architecture
+
+### Data Flow (Fail-Fast + Cache + RAG)
+
+1. Input normalization (trim / simple cleanup)
+2. Redis cache lookup (hot query optimization)
+3. Top-K retrieval from KnowledgeBase (K=5)
+4. Refusal gate: if `hits == 0`, return refusal (no LLM)
+5. Prompt assembly: inject Known Info
+6. LLM inference (DashScope OpenAI-compatible endpoint)
+7. Write-back to Redis with TTL (on cache miss)
+
+```mermaid
+flowchart LR
+  U[User Question] --> C[AgentController]
+  C --> KV{Redis Cache}
+  KV -- "Hit" --> RC[Return Cached Response]
+  KV -- "Miss" --> R[KnowledgeBaseService: Top-K Retrieval]
+  R -- "hits = 0" --> X[Refusal Response (no LLM)]
+  R -- "hits > 0" --> P[Prompt Builder: Known Info]
+  P --> L[DashScope Client: /chat/completions]
+  L --> C
+  X --> C
+  C -->|Write Back (TTL)| KV
+  RC --> C
+  C --> U
+```
+
+---
+
+## Prompt Policy (Grounded Answering)
+
+The system uses a rigid template to prevent the LLM from using external knowledge.
+
+```text
+[System Role]
+Persona: NetEase Cloud Music customer support agent
+Constraint: Answer ONLY using the provided "Known Info".
+Failure Case: If the info is insufficient, reply exactly:
+"抱歉，小云暂时还没学会这个问题"
+No fabrication allowed.
+
+[User Role]
+Known Info:
+[1] <retrieved_answer_1>
+[2] <retrieved_answer_2>
+...
+User Question: <question>
+```
+
+---
+
+## API Reference
+
+### Chat Interface
+`GET /api/agent/chat?question=...`
+
+Response:
+```json
+{
+  "answer": "....",
+  "hits": 2
+}
+```
+
+Behavior:
+- `hits = 0` → fixed refusal (no LLM call)
+- `hits > 0` → LLM-generated answer grounded on Known Info
+
+---
+
+## Tech Stack
+
+| Component | Choice | Description |
+| --- | --- | --- |
+| Language | Java 17 | Core development language |
+| Framework | Spring Boot 3.x | Web MVC and dependency injection |
+| Database (dev) | H2 | Zero-infra rapid development |
+| Database (prod) | MySQL 8 | Persistence for production simulation |
+| Cache (prod) | Redis 7 | Hot query caching with TTL |
+| LLM Integration | OkHttp + Jackson | OpenAI-compatible chat completion client |
+| API Docs | OpenAPI / Swagger UI | API exploration and testing |
+| Deployment | Docker Compose | One-command infra startup |
+
+---
+
+## Repository Structure
+
+- `controller/AgentController.java` — request entry, response shaping
+- `service/KnowledgeBaseService.java` — retrieval + normalization retry
+- `repo/KnowledgeBaseRepository.java` — JPA query layer
+- `entity/KnowledgeBase.java` — KnowledgeBase schema
+- `service/ai/DashScopeClient.java` — LLM client (OpenAI-compatible protocol)
+
+---
+
+## Configuration
+
+### Environment Variables
+- `DASHSCOPE_API_KEY` (required)
+
+**macOS/Linux**
+```bash
+export DASHSCOPE_API_KEY="your_api_key_here"
+```
 
 **Windows (PowerShell)**
 ```powershell
-setx DASHSCOPE_API_KEY "YOUR_KEY"
+setx DASHSCOPE_API_KEY "your_api_key_here"
 ```
 
-**macOS / Linus (Bash)**
+### Spring Profiles
+Use `dev` by default and switch to `prod` when running with Docker.
+
+**application.properties**
+```properties
+spring.profiles.default=dev
+```
+
+**application-dev.properties** (H2; keep your existing settings)
+```properties
+# H2 Config (example)
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driver-class-name=org.h2.Driver
+spring.jpa.hibernate.ddl-auto=update
+```
+
+**application-prod.properties** (MySQL + Redis)
+```properties
+# MySQL
+spring.datasource.url=jdbc:mysql://localhost:3306/netease_agent?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+spring.datasource.username=agent
+spring.datasource.password=agentpass
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+spring.jpa.hibernate.ddl-auto=update
+
+# Redis
+spring.data.redis.host=localhost
+spring.data.redis.port=6379
+```
+
+---
+
+## Getting Started
+
+### 1) Rapid Development (Default: H2)
+Zero infrastructure required.
+
 ```bash
-export DASHSCOPE_API_KEY="YOUR_KEY"
-```
-
-### 2) Run
-``` bash
 mvn spring-boot:run
 ```
+
 After startup:
 - Swagger UI: `http://localhost:8080/swagger-ui/index.html`
-- H2 Console : `http://localhost:8080/h2`
+- H2 Console: `http://localhost:8080/h2`
 
+Seed a few KnowledgeBase entries via Swagger UI to reproduce retrieval hits.
 
-## Quick Start
-### 1) Minimal RAG Chat (Recommended)
-**Step A — Ensure your KnowledgeBase has data**
-Open Swagger UI and create at least 2 active entries that cover “自动续费/会员/黑胶”等问题.
-Suggested example payloads (adjust fields to match your API if needed):
-
+Example KnowledgeBase payload:
 ```json
 {
   "question": "怎么取消会员自动续费",
@@ -58,148 +216,117 @@ Suggested example payloads (adjust fields to match your API if needed):
   "keywords": "取消 自动续费 会员"
 }
 ```
-```json
-{
-  "question": "黑胶 VIP 多少钱",
-  "answer": "价格以 App 会员页展示为准；支持包月/包季/包年，活动价格可能变化。",
-  "keywords": "黑胶 价格 VIP 多少钱"
-}
-```
-> Note: default DB is H2 in-memory. Restarting the app may clear data unless you seed it again.
 
-**Step B — Call the Agent endpoint (3 questions for reproduction)**
+Quick test:
 ```bash
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=取消自动续费"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消会员自动续费"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=黑胶多少钱"
+curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消会员自动续费"
 ```
-Expected response shape:
-```json
-{"answer":"...","hits":2}
-```
-- `hits > 0` → LLM answers **based on Known Info**
-- `hits = 0` fixed refusal: `抱歉，小云暂时还没学会这个问题`
 
-### 2) Retrieval Debug Route (No LLM knowledge required)
-This route is for debugging “why no hit?” quickly.
-1) Check H2 Console:
-  - URL: `http://localhost:8080/h2`
-  - Confirm KnowledgeBase rows exist and `active=true`
-3) Compare short keyword query vs longer natural question:
+### 2) Production Simulation (Docker: MySQL + Redis)
+
+Start infrastructure:
 ```bash
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=黑胶"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=黑胶多少钱"
-```
-If shorter queries hit but longer ones don’t, common causes:
-- KnowledgeBase `keywords/question` doesn’t contain core terms (or only exists in `answer`)
-- normalization rules need to strip more suffix/prefix variants
-- fuzzy query is too strict (only one direction contains match)
-
-
-## API
-### Chat (Minimal RAG)
-**GET** `/api/agent/chat?question=...`
-Response:
-```json
-{ "answer": "...", "hits": 2 }
-```
-- `hits`: number of KnowledgeBase hits (Top5)
-- `hits = 0`: direct refusal (no LLM call)
-
-## Methods
-### Minimal Lexical RAG (JPA Fuzzy Search + Normalize Retry)
-- Entry: `KnowledgeBaseService.searchTop5(question)`
-  - search with original question
-  - if empty → `normalizeQuestion()` then search again
-  - TopK = 5
-- Files:
-  - `controller/AgentController.java`
-  - `service/KnowledgeBaseService.java`
-  - `repo/KnowledgeBaseRepository.java`
-  - `entity/KnowledgeBase.java`
-
-### DashScope OpenAI-Compatible Chat Client
-- OkHttp POST: `{baseUrl}/chat/completions`
-- Parse: `choices[0].message.content` with Jackson `ObjectMapper`
-- Non-200 → throw exception with status code + body
-- Files: `service/ai/DashScopeClient.java`
-
-
-## Templates (Prompt Policy)
-
-### System Policy (strict grounded)
-- Persona: “网易云音乐智能客服小云”
-- Must answer **only using Known Info**
-- If insufficient: reply exactly `抱歉，小云暂时还没学会这个问题`
-- No fabrication
-
-### User Message (Known Info injection)
-```text
-已知信息：
-[1] {answer1}
-[2] {answer2}
-...
-用户问题：{question}
+docker-compose up -d
 ```
 
-## DashScope Client Details
-### Request (OpenAI compatible)
-```json
-{
-  "model": "qwen-plus",
-  "temperature": 0.3,
-  "messages": [
-    {"role": "system", "content": "<system message>"},
-    {"role": "user", "content": "<known info + question>"}
-  ]
-}
-```
-### Response Parsing
-Extract: `choices[0].message.content`
-
-### Configuration (application.properties)
-```properties
-agent.llm.base-url=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
-agent.llm.api-key=${DASHSCOPE_API_KEY:}
-agent.llm.model=qwen-plus
-agent.llm.temperature=0.3
+Run with prod profile:
+```bash
+mvn spring-boot:run -Dspring.profiles.active=prod
 ```
 
-## Evaluation
-### Smoke Test (3 questions)
-``` bash
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=取消自动续费"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消会员自动续费"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=黑胶多少钱"
+---
+
+## Docker Compose (Reference)
+
+Create `docker-compose.yml` in project root:
+
+```yaml
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: netease-agent-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: netease_agent
+      MYSQL_USER: agent
+      MYSQL_PASSWORD: agentpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: netease-agent-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql_data:
+  redis_data:
 ```
-Check:
-- `hits` is reasonable (1~5)
-- `answer` is grounded and doesn’t invent facts beyond Known Info
-- unknown questions refuse exactly
 
-### Retrieval Robustness Checklist
-Try pairs:
-- `黑胶` vs `黑胶价格是多少`？
-- with punctuation / filler words / suffix `多少钱`/`是多少`/`怎么`/`如何`
+---
 
-``` bash
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=黑胶"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=黑胶价格是多少？"
+## Operational Notes
+
+- **Fail-fast refusal:** if `hits == 0`, return refusal without calling LLM (cost/latency saving, groundedness)
+- **Cache degradation:** Redis issues should not break the main request path (fallback to retrieval + LLM)
+- **Cache TTL:** keep TTL configurable; avoid long caching for `hits==0` refusal to prevent stale behavior after KB updates
+- **Default dev mode:** H2 in-memory is for rapid iteration; use `prod` profile for persistence + caching simulation
+
+---
+
+## Roadmap
+
+- [ ] Semantic search (embedding-based retrieval: pgvector / Milvus), keep lexical as fallback (hybrid)
+- [ ] Observability (structured logs + tracing + metrics)
+- [ ] Evaluation harness (offline test set + groundedness checks)
+- [ ] Admin tooling (KB import/export, moderation workflow)
+
+---
+
+## Screenshots (Recommended)
+
+Add real screenshots under `docs/` to improve scanability:
+
+- `docs/swagger.png`
+- `docs/response.png`
+
+Example:
+
+```markdown
+## Screenshots
+
+### Swagger UI
+![Swagger UI](docs/swagger.png)
+
+### Example Response
+![Response](docs/response.png)
 ```
 
+---
 
-## Model
-This repo does **not** ship model weights.
-- LLM: DashScope `qwen-plus` (configurable)
-- Retrieval: lexical fuzzy match (P0 baseline)
-- Output policy: strict grounded answering + refusal
+## License
+MIT
 
+---
 
-## About
-A Spring Boot “minimal RAG customer support agent” project built with:
-- H2 + Spring Data JPA KnowledgeBase
-- OkHttp + Jackson + DashScope (OpenAI-compatible)
-- Swagger UI for fast iteration (“vibe coding” friendly)
-Resources:
-- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
-- H2 Console: `http://localhost:8080/h2`
+## Author
+Chen Hongshan
