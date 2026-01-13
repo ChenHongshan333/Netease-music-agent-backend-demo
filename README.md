@@ -66,18 +66,28 @@ This project demonstrates a minimal RAG pipeline with production-minded engineer
 flowchart LR
   U[User Question] --> C[AgentController]
   C --> KV{Redis Cache}
-  KV -- "Hit" --> RC[Return Cached Response]
-  KV -- "Miss" --> R[KnowledgeBaseService: Top-K Retrieval]
-  R -- "hits = 0" --> X[Refusal Response (no LLM)]
-  R -- "hits > 0" --> P[Prompt Builder: Known Info]
-  P --> L[DashScope Client: /chat/completions]
-  L --> C
-  X --> C
-  C -->|Write Back (TTL)| KV
-  RC --> C
-  C --> U
-```
 
+  KV --> H[Cache Hit]
+  H --> C
+
+  KV --> M[Cache Miss]
+  M --> R[Top-K Retrieval]
+
+  R --> Z[No Hit]
+  Z --> X[Refusal - no LLM]
+  X --> C
+
+  R --> Y[Has Hit]
+  Y --> P[Build Prompt - Known Info]
+  P --> L[DashScope Chat]
+  L --> C
+
+  C --> WB[Write Back - TTL]
+  WB --> KV
+
+  C --> U
+
+```
 ---
 
 ## Prompt Policy (Grounded Answering)
