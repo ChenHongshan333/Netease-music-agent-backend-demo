@@ -199,6 +199,13 @@ spring.data.redis.host=localhost
 spring.data.redis.port=6379
 ```
 
+### Cache (prod)
+```properties
+agent.cache.enabled=true
+agent.cache.ttl-seconds=600
+agent.cache.refusal-ttl-seconds=30
+```
+
 ---
 
 ## Getting Started
