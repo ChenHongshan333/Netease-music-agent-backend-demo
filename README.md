@@ -161,13 +161,11 @@ Behavior:
 ### Environment Variables
 - `DASHSCOPE_API_KEY` (required)
 
-**macOS/Linux**
 ```bash
+# macOS / Linux
 export DASHSCOPE_API_KEY="your_api_key_here"
-```
 
-**Windows (PowerShell)**
-```powershell
+# Windows (PowerShell)
 setx DASHSCOPE_API_KEY "your_api_key_here"
 ```
 
@@ -251,11 +249,11 @@ docker ps
 
 2. Run with prod profile:
 
-```powershell
-.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=prod
-```
-
 ```bash
+# Windows (Powershell)
+.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=prod
+
+# macOS / Linux
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=prod
 ```
 
@@ -267,7 +265,7 @@ docker ps
   - refusal: `agent.cache.refusal-ttl-seconds` (short TTL to avoid long-term refusal)
 - Redis failures **do not break** the main flow (degrade to cache miss).
 
-**Verification (3 requests)**
+4. Verification (3 requests)
 ```bash
 curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
@@ -278,13 +276,13 @@ Expected log patterns:
 - 2nd request: `cache=HIT` (no `llm=CALL`)
 - 3rd request: `cache=MISS` → `gate=REFUSAL hits=0 llm=SKIP`
 
-4. Degradation drill (Redis down)
+5. Degradation drill (Redis down)
 ```bash
 docker stop csagent-redis
 curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 docker start csagent-redis
 ```
-Expected: the API still returns normally; cache logs show miss and Redis errors are swallowed **(warn only)**.
+Expected results: the API still returns normally; cache logs show miss and Redis errors are swallowed **(warn only)**.
 
 ---
 
