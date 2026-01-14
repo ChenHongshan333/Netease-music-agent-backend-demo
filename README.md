@@ -378,13 +378,13 @@ Here are some real screenshots under `docs/` to improve scanability and reproduc
 - `docs/response.png` — Example API response (`answer` + `hits`)
 - `docs/cache-logs.png` — Cache proof logs (MISS → LLM CALL → WRITE, then HIT with no LLM)
 
-### Swagger UI
+**Swagger UI**
 ![Swagger UI](docs/swagger.png)
 
-### Example Response
+**Example Response**
 ![Response](docs/response.png)
 
-### Cache Hit/Miss Logs (Proof)
+**Cache Hit/Miss Logs (Proof)**
 ![Cache Logs](docs/cache-logs.png)
 
 ---
