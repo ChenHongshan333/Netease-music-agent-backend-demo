@@ -370,24 +370,22 @@ All AI-assisted changes were **manually reviewed and adjusted**. Key engineering
 
 ---
 
-## Screenshots (Recommended)
-
-Add real screenshots under `docs/` to improve scanability:
-
-- `docs/swagger.png`
-- `docs/response.png`
-
-Example:
-
-```markdown
 ## Screenshots
+
+Here are some real screenshots under `docs/` to improve scanability and reproducibility:
+
+- `docs/swagger.png` — Swagger UI (endpoint visible)
+- `docs/response.png` — Example API response (`answer` + `hits`)
+- `docs/cache-logs.png` — Cache proof logs (MISS → LLM CALL → WRITE, then HIT with no LLM)
 
 ### Swagger UI
 ![Swagger UI](docs/swagger.png)
 
 ### Example Response
 ![Response](docs/response.png)
-```
+
+### Cache Hit/Miss Logs (Proof)
+![Cache Logs](docs/cache-logs.png)
 
 ---
 
