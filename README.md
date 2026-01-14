@@ -68,16 +68,16 @@ flowchart LR
   U[User Question] --> C[AgentController]
   C --> KV{Redis Cache}
 
-  %% Read Path: Blind Return
+  %% Read Path: Cache Hit
   KV -- Hit --> H[Return Cached JSON]
   H -.->|Could be Refusal or Answer| C
 
-  %% Write Path: Split Logic
+  %% Write Path: Cache Miss -> Split Logic
   KV -- Miss --> R[Top-K Retrieval]
 
   %% Branch 1: No Knowledge (Refusal)
   R -- Hits=0 --> Z[Refusal Msg]
-  Z -- "Write: Short TTL (30s)" --> W1[Redis: Anti-Penetration]
+  Z -- "Write: Short TTL (30s)" --> W1[Redis: Short-lived refusal cache]
   W1 --> KV
   Z --> C
 
@@ -212,6 +212,9 @@ agent.cache.refusal-ttl-seconds=30
 
 ## Getting Started
 
+> Note (Windows): In **PowerShell**, `curl` may be an alias of `Invoke-WebRequest`.
+> If the commands below fail, use **`curl.exe`** instead (or run in CMD/Git Bash).
+
 ### 1. Rapid Development (Default: H2)
 Zero infrastructure required.
 
@@ -240,7 +243,11 @@ Example KnowledgeBase payload:
 
 Quick test:
 ```bash
+# Standard
 curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+
+# Powershell fallback
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 ```
 
 ### 2. Production Simulation (Docker: MySQL + Redis)
@@ -270,12 +277,19 @@ docker ps
 - Redis failures **do not break** the main flow (degrade to cache miss).
 
 4) Verification (3 requests)
+
 ```bash
-# Windows Powershell users may need to use 'curl.exe' instead of 'curl'
+# Standard
 curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=火星移民怎么报名"
+
+# PowerShell fallback
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=火星移民怎么报名"
 ```
+
 Expected log patterns:
 - 1st request: `cache=MISS` → `llm=CALL` → `cache=WRITE`
 - 2nd request: `cache=HIT` (no `llm=CALL`)
@@ -283,6 +297,12 @@ Expected log patterns:
 
 5) Degradation drill (Redis down)
 ```bash
+# Standard
+docker stop csagent-redis
+curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+docker start csagent-redis
+
+# PowerShell fallback
 docker stop csagent-redis
 curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 docker start csagent-redis
