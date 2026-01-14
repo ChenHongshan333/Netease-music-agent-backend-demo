@@ -205,11 +205,20 @@ spring.data.redis.port=6379
 
 ## Getting Started
 
+This project supports dual profiles:
+- **dev (default)**: H2 in-memory (fast local iteration)
+- **prod**: MySQL + Redis (Docker Compose), with Redis cache + TTL + graceful degradation
+
 ### 1) Rapid Development (Default: H2)
 Zero infrastructure required.
 
+If you have Maven environment done on your PC (Win/ macOS/ Linux):
 ```bash
 mvn spring-boot:run
+```
+If not, try Maven Wrapper:
+```bash
+./mvnw spring-boot:run
 ```
 
 After startup:
@@ -229,20 +238,53 @@ Example KnowledgeBase payload:
 
 Quick test:
 ```bash
-curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消会员自动续费"
+curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
 ```
 
 ### 2) Production Simulation (Docker: MySQL + Redis)
 
-Start infrastructure:
+1. Start infrastructure:
 ```bash
 docker-compose up -d
+docker ps
 ```
 
-Run with prod profile:
-```bash
-mvn spring-boot:run -Dspring.profiles.active=prod
+2. Run with prod profile:
+
+```powershell
+.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=prod
 ```
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=prod
+```
+
+3. Cache behavior
+- Cache **hit** returns immediately (no LLM call).
+- Cache **miss** triggers retrieval; `hits==0` refuses without calling LLM.
+- Cache write-back uses TTL:
+  - normal answer: `agent.cache.ttl-seconds`
+  - refusal: `agent.cache.refusal-ttl-seconds` (short TTL to avoid long-term refusal)
+- Redis failures **do not break** the main flow (degrade to cache miss).
+
+**Verification (3 requests)**
+```bash
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=火星移民怎么报名"
+```
+Expected log patterns:
+- 1st request: `cache=MISS` → `llm=CALL` → `cache=WRITE`
+- 2nd request: `cache=HIT` (no `llm=CALL`)
+- 3rd request: `cache=MISS` → `gate=REFUSAL hits=0 llm=SKIP`
+
+4. Degradation drill (Redis down)
+```bash
+docker stop csagent-redis
+curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+docker start csagent-redis
+```
+Expected: the API still returns normally; cache logs show miss and Redis errors are swallowed **(warn only)**.
 
 ---
 
