@@ -136,7 +136,7 @@ Behavior:
 | Component | Choice | Description |
 | --- | --- | --- |
 | Language | Java 17 | Core development language |
-| Framework | Spring Boot 3.x | Web MVC and dependency injection |
+| Framework | Spring Boot | Web MVC and dependency injection |
 | Database (dev) | H2 | Zero-infra rapid development |
 | Database (prod) | MySQL 8 | Persistence for production simulation |
 | Cache (prod) | Redis 7 | Hot query caching with TTL |
@@ -187,20 +187,18 @@ spring.jpa.hibernate.ddl-auto=update
 
 **application-prod.properties** (MySQL + Redis)
 ```properties
-# MySQL
-spring.datasource.url=jdbc:mysql://localhost:3306/netease_agent?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-spring.datasource.username=agent
-spring.datasource.password=agentpass
+# MySQL (prod)
+spring.datasource.url=jdbc:mysql://localhost:3306/cs_agent?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Singapore
+spring.datasource.username=cs
+spring.datasource.password=cs_pass
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
 spring.jpa.hibernate.ddl-auto=update
 
-# Redis
+# Redis (prod)
 spring.data.redis.host=localhost
 spring.data.redis.port=6379
-```
 
-### Cache (prod)
-```properties
+# Cache (prod)
 agent.cache.enabled=true
 agent.cache.ttl-seconds=600
 agent.cache.refusal-ttl-seconds=30
@@ -209,10 +207,6 @@ agent.cache.refusal-ttl-seconds=30
 ---
 
 ## Getting Started
-
-This project supports dual profiles:
-- **dev (default)**: H2 in-memory (fast local iteration)
-- **prod**: MySQL + Redis (Docker Compose), with Redis cache + TTL + graceful degradation
 
 ### 1) Rapid Development (Default: H2)
 Zero infrastructure required.
@@ -250,7 +244,7 @@ curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么
 
 1. Start infrastructure:
 ```bash
-docker-compose up -d
+docker compose up -d
 docker ps
 ```
 
@@ -299,41 +293,38 @@ the API still returns normally; cache logs show miss and Redis errors are swallo
 Create `docker-compose.yml` in project root:
 
 ```yaml
-version: "3.8"
-
 services:
   mysql:
     image: mysql:8.0
-    container_name: netease-agent-mysql
+    container_name: csagent-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: netease_agent
-      MYSQL_USER: agent
-      MYSQL_PASSWORD: agentpass
+      MYSQL_DATABASE: cs_agent
+      MYSQL_USER: cs
+      MYSQL_PASSWORD: cs_pass
+      MYSQL_ROOT_PASSWORD: root_pass
+      TZ: Asia/Singapore
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      # - ./docker/mysql/init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpass"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_pass"]
       interval: 5s
-      timeout: 5s
-      retries: 20
+      timeout: 3s
+      retries: 30
 
   redis:
     image: redis:7-alpine
-    container_name: netease-agent-redis
+    container_name: csagent-redis
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
 
 volumes:
   mysql_data:
@@ -348,15 +339,6 @@ volumes:
 - **Cache degradation:** Redis issues should not break the main request path (fallback to retrieval + LLM)
 - **Cache TTL:** keep TTL configurable; avoid long caching for `hits==0` refusal to prevent stale behavior after KB updates
 - **Default dev mode:** H2 in-memory is for rapid iteration; use `prod` profile for persistence + caching simulation
-
----
-
-## Roadmap
-
-- [ ] Semantic search (embedding-based retrieval: pgvector / Milvus), keep lexical as fallback (hybrid)
-- [ ] Observability (structured logs + tracing + metrics)
-- [ ] Evaluation harness (offline test set + groundedness checks)
-- [ ] Admin tooling (KB import/export, moderation workflow)
 
 ---
 
