@@ -1,8 +1,11 @@
 package com.example.cs_agent_service.controller;
 
+import com.example.cs_agent_service.config.CacheProperties;
 import com.example.cs_agent_service.entity.KnowledgeBase;
 import com.example.cs_agent_service.service.KnowledgeBaseService;
 import com.example.cs_agent_service.service.ai.DashScopeClient;
+import com.example.cs_agent_service.service.cache.RedisCacheService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,9 +14,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/agent")
@@ -21,10 +27,22 @@ public class AgentController {
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final DashScopeClient dashScopeClient;
+    private final RedisCacheService cache;
+    private final CacheProperties cacheProps;
+    private final ObjectMapper objectMapper;
 
-    public AgentController(KnowledgeBaseService knowledgeBaseService, DashScopeClient dashScopeClient) {
+    public AgentController(
+            KnowledgeBaseService knowledgeBaseService,
+            DashScopeClient dashScopeClient,
+            RedisCacheService cache,
+            CacheProperties cacheProps,
+            ObjectMapper objectMapper
+    ) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.dashScopeClient = dashScopeClient;
+        this.cache = cache;
+        this.cacheProps = cacheProps;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping("/chat")
@@ -33,16 +51,39 @@ public class AgentController {
         if (question == null || question.trim().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "question 不能为空");
         }
-        String q = question.trim();
 
+        String q = question.trim();
+        String cacheKey = buildCacheKey(q);
+
+        // 1) Cache lookup (hit -> return immediately)
+        if (cacheProps.isEnabled()) {
+            Optional<String> cached = cache.get(cacheKey);
+            if (cached.isPresent()) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> resp = objectMapper.readValue(cached.get(), Map.class);
+                    return resp;
+                } catch (Exception ignored) {
+                    // 解析失败视为 cache miss，继续走主链路
+                }
+            }
+        }
+
+        // 2) Retrieval
         List<KnowledgeBase> hits = knowledgeBaseService.searchTop5(q);
+
+        // 3) Refusal gate (hits == 0 -> no LLM call)
         if (hits == null || hits.isEmpty()) {
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("answer", "抱歉，小云暂时还没学会这个问题");
             resp.put("hits", 0);
+
+            // refusal cache: very short TTL (optional)
+            writeCacheSafely(cacheKey, resp, cacheProps.getRefusalTtlSeconds());
             return resp;
         }
 
+        // 4) Prompt assembly
         String systemMsg = """
             你是网易云音乐智能客服小云，请用亲切活泼的语气回答。
             必须优先基于【已知信息】回答；
@@ -59,12 +100,52 @@ public class AgentController {
         }
         known.append("用户问题：").append(q);
 
+        // 5) LLM inference
         String answer = dashScopeClient.call(systemMsg, known.toString());
 
+        // 6) Response
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("answer", answer);
         resp.put("hits", hits.size());
+
+        // 7) Write-back cache with normal TTL
+        writeCacheSafely(cacheKey, resp, cacheProps.getTtlSeconds());
         return resp;
     }
-}
 
+    /**
+     * Cache key: versioned + sha256(question.trim()) to avoid special chars / huge keys.
+     */
+    private String buildCacheKey(String question) {
+        String normalized = question.trim();
+        return "agent:chat:v1:" + sha256Hex(normalized);
+    }
+
+    private String sha256Hex(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            // extreme fallback: still works, just less safe for redis key
+            return s;
+        }
+    }
+
+    /**
+     * Never break main flow: cache errors must be ignored.
+     */
+    private void writeCacheSafely(String key, Map<String, Object> resp, long ttlSeconds) {
+        if (!cacheProps.isEnabled()) return;
+        if (ttlSeconds <= 0) return;
+
+        try {
+            String json = objectMapper.writeValueAsString(resp);
+            cache.set(key, json, ttlSeconds);
+        } catch (Exception ignored) {
+            // ignore all to keep main flow stable
+        }
+    }
+}
