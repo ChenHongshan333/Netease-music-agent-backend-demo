@@ -68,23 +68,23 @@ flowchart LR
   U[User Question] --> C[AgentController]
   C --> KV{Redis Cache}
 
-  %% Cache Hit Logic
-  KV -- Hit --> Return[Return Cached]
-  Return --> C
+  %% Read Path: Blind Return
+  KV -- Hit --> H[Return Cached JSON]
+  H -.->|Could be Refusal or Answer| C
 
-  %% Cache Miss Logic
+  %% Write Path: Split Logic
   KV -- Miss --> R[Top-K Retrieval]
 
-  %% Path 1: No Knowledge Found (Refusal)
+  %% Branch 1: No Knowledge (Refusal)
   R -- Hits=0 --> Z[Refusal Msg]
-  Z -- "Anti-Penetration" --> W1[Write: Short TTL]
+  Z -- "Write: Short TTL (30s)" --> W1[Redis: Anti-Penetration]
   W1 --> KV
   Z --> C
 
-  %% Path 2: Knowledge Found (RAG)
+  %% Branch 2: Knowledge Found (Answer)
   R -- Hits>0 --> P[Build Prompt]
   P --> L[DashScope Chat]
-  L -- "Standard Cache" --> W2[Write: Long TTL]
+  L -- "Write: Long TTL (10m)" --> W2[Redis: Standard Cache]
   W2 --> KV
   L --> C
 
@@ -271,10 +271,10 @@ docker ps
 
 4) Verification (3 requests)
 ```bash
-# macOS / Linux users may need to use 'curl' instead of 'curl.exe'
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
-curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=火星移民怎么报名"
+# Windows Powershell users may need to use 'curl.exe' instead of 'curl'
+curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么取消自动续费"
+curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=火星移民怎么报名"
 ```
 Expected log patterns:
 - 1st request: `cache=MISS` → `llm=CALL` → `cache=WRITE`
