@@ -60,30 +60,32 @@ This project demonstrates a minimal RAG pipeline with production-minded engineer
 4. Refusal gate: if `hits == 0`, return refusal (no LLM)
 5. Prompt assembly: inject Known Info
 6. LLM inference (DashScope OpenAI-compatible endpoint)
-7. Write-back to Redis with TTL (on cache miss)
+7. Write-back to Redis with TTL (Write-back to Redis with TTL (Short TTL for refusals to prevent cache penetration))
 
 ```mermaid
 flowchart LR
   U[User Question] --> C[AgentController]
   C --> KV{Redis Cache}
 
-  KV --> H[Cache Hit]
-  H --> C
+  %% Cache Hit Logic
+  KV -- Hit --> Return[Return Cached]
+  Return --> C
 
-  KV --> M[Cache Miss]
-  M --> R[Top-K Retrieval]
+  %% Cache Miss Logic
+  KV -- Miss --> R[Top-K Retrieval]
 
-  R --> Z[No Hit]
-  Z --> X[Refusal - no LLM]
-  X --> C
+  %% Path 1: No Knowledge Found (Refusal)
+  R -- Hits=0 --> Z[Refusal Msg]
+  Z -- "Anti-Penetration" --> W1[Write: Short TTL]
+  W1 --> KV
+  Z --> C
 
-  R --> Y[Has Hit]
-  Y --> P[Build Prompt - Known Info]
+  %% Path 2: Knowledge Found (RAG)
+  R -- Hits>0 --> P[Build Prompt]
   P --> L[DashScope Chat]
+  L -- "Standard Cache" --> W2[Write: Long TTL]
+  W2 --> KV
   L --> C
-
-  C --> WB[Write Back - TTL]
-  WB --> KV
 
   C --> U
 
