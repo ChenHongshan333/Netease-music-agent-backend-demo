@@ -1070,15 +1070,37 @@ a:focus {
 }
 
 /* =============================================
-   (2) Key Features：小标题灰色圆角背景条
+   (2) Key Features：小标题渐变背景条
 ============================================= */
 #key-features .pp-body .title.is-4 {
-  background: #f5f5f5;
+  background: linear-gradient(
+    to right,
+    rgba(100, 180, 255, 0.25) 0%,
+    rgba(100, 180, 255, 0.25) 66%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
   border-radius: 10px;
   padding: 8px 16px;
   display: inline-block;
   width: auto;
   margin-left: 0;
+  border-left: 3px solid rgba(0, 123, 255, 0.4);
+}
+
+/* Architecture 小标题同样渐变效果 */
+#architecture .pp-body .title.is-4 {
+  background: linear-gradient(
+    to right,
+    rgba(100, 180, 255, 0.25) 0%,
+    rgba(100, 180, 255, 0.25) 66%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  border-radius: 10px;
+  padding: 8px 16px;
+  display: inline-block;
+  width: auto;
+  margin-left: 0;
+  border-left: 3px solid rgba(0, 123, 255, 0.4);
 }
 
 /* =============================================
