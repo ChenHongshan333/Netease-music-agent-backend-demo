@@ -9,7 +9,7 @@
 
 A lightweight **Retrieval-Augmented Generation (RAG)** backend for high-volume customer support scenarios, with **production-minded engineering** (profiles, Docker infra, caching, and degradation drills).
 
-**Project Page:** : <https://chenhongshan333.github.io/Netease-music-agent-backend-demo/>
+**Project Page:** : <https://chenhongshan333.github.io/NetEase-music-agent-backend-demo/>
 
 ---
 
