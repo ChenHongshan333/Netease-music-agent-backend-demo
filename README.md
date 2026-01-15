@@ -17,19 +17,19 @@ A lightweight **Retrieval-Augmented Generation (RAG)** backend for high-volume c
 - [Security](#security)
 - [Key Features](#key-features)
 - [Install](#install)
-  - [Prerequisites](#prerequisites)
-  - [Set Environment Variable (DashScope)](#set-environment-variable-dashscope)
+  - [1. Prerequisites](#1-prerequisites)
+  - [2. Set Environment Variable (DashScope)](#2-set-environment-variable-dashscope)
 - [Usage](#usage)
   - [1. Rapid Development (Default: H2)](#1-rapid-development-default-h2)
   - [2. Production Simulation (Docker: MySQL + Redis)](#2-production-simulation-docker-mysql--redis)
-  - [Degradation Drill (Redis Down)](#degradation-drill-redis-down)
+  - [3. Degradation Drill (Redis Down)](#3-degradation-drill-redis-down)
 - [Configuration](#configuration)
   - [Spring Profiles](#spring-profiles)
 - [API Reference](#api-reference)
   - [Chat Interface](#chat-interface)
 - [Architecture](#architecture)
-  - [Data Flow (Fail-Fast + Cache + RAG)](#data-flow-fail-fast--cache--rag)
-  - [Repository Structure](#repository-structure)
+  - [1. Data Flow (Fail-Fast + Cache + RAG)](#1-data-flow-fail-fast--cache--rag)
+  - [2. Repository Structure](#2-repository-structure)
 - [Docker Compose Reference](#docker-compose-reference)
 - [AI-Assisted Development (Vibe Coding)](#ai-assisted-development-vibe-coding)
 - [License](#license)
@@ -53,7 +53,7 @@ A lightweight **Retrieval-Augmented Generation (RAG)** backend for high-volume c
 
 ## Install
 
-### Prerequisites
+### 1. Prerequisites
 **Required**
 - **JDK 17** (Java 17)
 - **Git** (to clone the repo)
@@ -64,7 +64,7 @@ A lightweight **Retrieval-Augmented Generation (RAG)** backend for high-volume c
 
 > Good news: this repo uses **Maven Wrapper** (`mvnw`), so you **don’t need to install Maven** separately.
 
-### Set Environment Variable (DashScope)
+### 2. Set Environment Variable (DashScope)
 
 ```bash
 # Windows (Powershell)
@@ -171,7 +171,7 @@ curl.exe -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=�
 * **2nd request:** `cache=HIT` (no `llm=CALL`)
 * **If you ask an unknown question:** `cache=MISS` → `gate=REFUSAL` `hits=0` `llm=SKIP` (and refusal cached with short TTL)
 
-### Degradation Drill (Redis Down)
+### 3. Degradation Drill (Redis Down)
 Goal: prove Redis failure does not break the main request flow.
 
 ```bash
@@ -253,7 +253,7 @@ curl -G "http://localhost:8080/api/agent/chat" --data-urlencode "question=怎么
 ---
 ## Architecture
 
-### Data Flow (Fail-Fast + Cache + RAG)
+### 1. Data Flow (Fail-Fast + Cache + RAG)
 
 1. Input normalization (trim / simple cleanup)
 2. Redis cache lookup (hot query optimization)
@@ -292,7 +292,7 @@ flowchart LR
 
 ```
 
-### Repository Structure
+### 2. Repository Structure
 
 Key source files map to the architecture above:
 
