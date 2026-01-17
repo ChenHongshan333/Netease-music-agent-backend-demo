@@ -389,7 +389,7 @@ All changes were manually reviewed and verified via reproducible drills (cache h
 
 ---
 ## License
-MIT
+MIT License. See `LICENSE` for details.
 
 ---
 ## Author
